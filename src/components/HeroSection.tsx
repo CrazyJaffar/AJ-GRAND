@@ -133,16 +133,16 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
               <div className="pt-4 border-t border-[#e8e2d9] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-[#4d463c]">
                 <div>
-                  <span className="block font-semibold text-[#1a1918]">Parking &amp; Water</span>
-                  <span>Covered car bay &amp; 24/7 supply</span>
+                  <span className="block font-semibold text-[#1a1918]">Water &amp; Eco Systems</span>
+                  <span>Well, Borewell, Cauvery, Solar &amp; Rainwater</span>
                 </div>
                 <div>
-                  <span className="block font-semibold text-[#1a1918]">Neighbourhood</span>
-                  <span>Quiet lane beside defence land</span>
+                  <span className="block font-semibold text-[#1a1918]">Windows &amp; Storage</span>
+                  <span>L-Shape/Bay windows &amp; aluminum shoe rack</span>
                 </div>
                 <div>
-                  <span className="block font-semibold text-[#1a1918]">Building Profile</span>
-                  <span>1st Floor is Owner&apos;s Residence</span>
+                  <span className="block font-semibold text-[#1a1918]">Security &amp; Terrace</span>
+                  <span>CCTV surveillance &amp; Terrace Garden</span>
                 </div>
               </div>
             </div>
@@ -217,13 +217,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
           <div className="p-5 md:p-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#725b38]">
-              Location Calm
+              Water Security
             </p>
             <p className="font-editorial text-2xl text-[#1a1918] mt-1">
-              Beside Defence Land
+              Well, Borewell &amp; Cauvery
             </p>
             <p className="text-xs text-[#605e5c] mt-1">
-              Covered car parking &amp; 24/7 water supply
+              Private on-site water well + CCTV &amp; covered parking
             </p>
           </div>
         </div>

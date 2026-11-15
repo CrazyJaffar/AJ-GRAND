@@ -77,7 +77,7 @@ export const AmenitiesAndGallerySection: React.FC = () => {
               >
                 <div className="flex items-start justify-between gap-4 mb-2">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#725b38] tabular-nums">
-                    0{index + 1}.
+                    {String(index + 1).padStart(2, '0')}.
                   </span>
                   <Check className="w-4 h-4 text-[#725b38] shrink-0" />
                 </div>
