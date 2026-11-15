@@ -92,8 +92,63 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               </div>
             </div>
 
+            {/* Residence & Building Brief to balance vertical cadence with facade photo */}
+            <div className="mt-8 bg-[#f4efea] border border-[#e8e2d9] rounded-[6px] p-6 space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#e8e2d9]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#725b38]">
+                  At-a-Glance Residence Brief
+                </p>
+                <p className="text-xs text-[#4d463c]">
+                  Direct Owner Leasing · Zero Brokerage
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <p className="font-editorial text-xl text-[#1a1918]">
+                    2 BHK Semi-Furnished
+                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#725b38] mt-0.5">
+                    Ground · Second · Third Floor
+                  </p>
+                  <p className="text-xs leading-[1.65] text-[#4d463c] mt-2">
+                    Bedroom &amp; kitchen wardrobes, recessed false ceiling, two bathrooms
+                    (attached Western + common Indian), granite &amp; fresh paint.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-editorial text-xl text-[#1a1918]">
+                    Luxury 1 BHK
+                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#725b38] mt-0.5">
+                    Second · Third Floor
+                  </p>
+                  <p className="text-xs leading-[1.65] text-[#4d463c] mt-2">
+                    Dual open balconies (living area + separate bedroom balcony), dedicated
+                    kitchen, utility area, and attached Western bathroom.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[#e8e2d9] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-[#4d463c]">
+                <div>
+                  <span className="block font-semibold text-[#1a1918]">Parking &amp; Water</span>
+                  <span>Covered car bay &amp; 24/7 supply</span>
+                </div>
+                <div>
+                  <span className="block font-semibold text-[#1a1918]">Neighbourhood</span>
+                  <span>Quiet lane beside defence land</span>
+                </div>
+                <div>
+                  <span className="block font-semibold text-[#1a1918]">Building Profile</span>
+                  <span>1st Floor is Owner&apos;s Residence</span>
+                </div>
+              </div>
+            </div>
+
             {/* Subtle heritage dedication */}
-            <p className="mt-8 text-xs tracking-[0.04em] text-[#605e5c]">
+            <p className="mt-6 text-xs tracking-[0.04em] text-[#605e5c]">
               AJ GRAND — Crafted in honor of {config.brandMeaning} · Private boutique leasing with zero brokerage
             </p>
           </div>
