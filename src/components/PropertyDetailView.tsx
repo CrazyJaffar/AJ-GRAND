@@ -163,7 +163,7 @@ export const PropertyDetailView: React.FC<PropertyDetailViewProps> = ({
                   </div>
                   {property.dimensions && (
                     <div className="py-3.5 flex flex-col sm:flex-row sm:justify-between gap-1">
-                      <dt className="text-[#605e5c]">Dimensions</dt>
+                      <dt className="text-[#605e5c]">Total Area</dt>
                       <dd className="font-medium text-[#1a1918] tabular-nums">
                         {property.dimensions}
                       </dd>
@@ -178,6 +178,60 @@ export const PropertyDetailView: React.FC<PropertyDetailViewProps> = ({
                     </div>
                   )}
                 </dl>
+              </div>
+
+              {/* Room-by-Room Dimensions & Area Schedule */}
+              <div className="bg-[#ffffff] border border-[#e8e2d9] rounded-[6px] p-6 md:p-8">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-5">
+                  <h2 className="font-editorial text-2xl text-[#1a1918]">
+                    Room-by-Room Dimensions &amp; Area Schedule
+                  </h2>
+                  <span className="text-xs font-semibold uppercase tracking-[0.09em] text-[#725b38] tabular-nums">
+                    Total: {property.totalSqFt} sq.ft.
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-[#e8e2d9] text-[11px] font-semibold uppercase tracking-[0.09em] text-[#605e5c]">
+                        <th className="py-2.5 pr-4">Space</th>
+                        <th className="py-2.5 px-4">Dimensions</th>
+                        <th className="py-2.5 pl-4 text-right">Area (sq.ft.)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#e8e2d9]">
+                      {property.roomMeasurements.map((item) => (
+                        <tr key={`${property.id}-${item.room}`}>
+                          <td className="py-3 pr-4">
+                            <span className="font-medium text-[#1a1918]">{item.room}</span>
+                            {item.note && (
+                              <span className="block text-xs text-[#605e5c] mt-0.5">
+                                {item.note}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-[#4d463c] tabular-nums whitespace-nowrap">
+                            {item.dimensionsFt}
+                          </td>
+                          <td className="py-3 pl-4 text-right font-medium text-[#1a1918] tabular-nums whitespace-nowrap">
+                            {item.areaSqFt} sq.ft.
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-[#d1c5b8] bg-[#f5f3f0]">
+                        <td className="py-3 px-2 font-semibold text-[#1a1918]" colSpan={2}>
+                          Total Residence Area ({property.bhkConfiguration})
+                        </td>
+                        <td className="py-3 px-2 text-right font-editorial text-xl text-[#1a1918] tabular-nums whitespace-nowrap">
+                          {property.totalSqFt} sq.ft.
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
 
               {/* Residence Features Checklist */}

@@ -102,7 +102,7 @@ export function useSiteState() {
         rentAmount: ov.rentAmount !== undefined ? ov.rentAmount : prop.rentAmount,
         securityDeposit:
           ov.securityDeposit !== undefined ? ov.securityDeposit : prop.securityDeposit,
-        dimensions: ov.dimensions !== undefined ? ov.dimensions : prop.dimensions,
+        dimensions: ov.dimensions || prop.dimensions,
         availabilityDate:
           ov.availabilityDate !== undefined
             ? ov.availabilityDate

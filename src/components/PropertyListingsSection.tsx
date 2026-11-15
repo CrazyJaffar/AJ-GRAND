@@ -169,6 +169,10 @@ export const PropertyListingsSection: React.FC<PropertyListingsSectionProps> = (
                         <span aria-hidden="true">·</span>
                         <span>{property.bhkConfiguration}</span>
                         <span aria-hidden="true">·</span>
+                        <span className="tabular-nums">
+                          {Math.round(property.totalSqFt)} sq.ft.
+                        </span>
+                        <span aria-hidden="true">·</span>
                         <span>{property.availabilityStatus}</span>
                       </div>
 
@@ -188,6 +192,12 @@ export const PropertyListingsSection: React.FC<PropertyListingsSectionProps> = (
 
                       {/* Key Architectural Specs */}
                       <dl className="border-t border-[#e8e2d9] pt-4 space-y-2 text-xs text-[#4d463c]">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-[#605e5c]">Total Area</dt>
+                          <dd className="font-medium text-[#1a1918] text-right tabular-nums">
+                            {property.dimensions || `${property.totalSqFt} sq.ft.`}
+                          </dd>
+                        </div>
                         <div className="flex justify-between gap-4">
                           <dt className="text-[#605e5c]">Bathrooms</dt>
                           <dd className="font-medium text-[#1a1918] text-right">

@@ -74,8 +74,8 @@ export const FloorOverviewSection: React.FC<FloorOverviewSectionProps> = ({
                             className="group text-left p-5 bg-[#f4efea] border border-[#e8e2d9] rounded-[4px] hover:border-[#c5a880] hover:bg-[#ffffff] transition-colors flex items-center justify-between gap-4 cursor-pointer"
                           >
                             <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[#725b38]">
-                                {unit.bhkConfiguration} · {unit.availabilityStatus}
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[#725b38] tabular-nums">
+                                {unit.bhkConfiguration} · {Math.round(unit.totalSqFt)} sq.ft. · {unit.availabilityStatus}
                               </p>
                               <p className="font-editorial text-xl text-[#1a1918] mt-1">
                                 {unit.name}

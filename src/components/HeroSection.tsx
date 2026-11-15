@@ -106,27 +106,27 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <p className="font-editorial text-xl text-[#1a1918]">
-                    2 BHK Semi-Furnished
+                    2 BHK Semi-Furnished · <span className="tabular-nums">600 sq.ft.</span>
                   </p>
                   <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#725b38] mt-0.5">
                     Ground · Second · Third Floor
                   </p>
                   <p className="text-xs leading-[1.65] text-[#4d463c] mt-2">
-                    Bedroom &amp; kitchen wardrobes, recessed false ceiling, two bathrooms
-                    (attached Western + common Indian), granite &amp; fresh paint.
+                    14.5 × 10 ft living, two 10 × 10 ft bedrooms, L-shape kitchen with utility,
+                    false ceiling, and 2 bathrooms (Western + Indian).
                   </p>
                 </div>
 
                 <div>
                   <p className="font-editorial text-xl text-[#1a1918]">
-                    Luxury 1 BHK
+                    Luxury 1 BHK · <span className="tabular-nums">450 sq.ft.</span>
                   </p>
                   <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#725b38] mt-0.5">
                     Second · Third Floor
                   </p>
                   <p className="text-xs leading-[1.65] text-[#4d463c] mt-2">
-                    Dual open balconies (living area + separate bedroom balcony), dedicated
-                    kitchen, utility area, and attached Western bathroom.
+                    9.6 × 16 ft living &amp; 9 × 11 ft bedroom with dual open balconies, 19 × 6 ft
+                    kitchen, utility area, and Western bath.
                   </p>
                 </div>
               </div>
