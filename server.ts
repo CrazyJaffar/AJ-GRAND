@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import nodemailer from 'nodemailer';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -15,6 +16,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 const DATA_DIR = path.resolve(__dirname, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
+const DEFAULT_NOTIFICATION_EMAIL = 'ajservices2132@gmail.com';
 
 const VALID_PROPERTY_IDS = new Set([
   'ground-floor-2bhk',
@@ -44,6 +46,14 @@ const VALID_AVAILABILITY_STATUSES = new Set([
   'Leased',
 ]);
 
+type DeliveryState = 'sent' | 'not_configured' | 'failed';
+
+interface ChannelDeliveryResult {
+  status: DeliveryState;
+  detail: string;
+  attemptedAt: string;
+}
+
 interface EnquiryRecord {
   id: string;
   fullName: string;
@@ -56,6 +66,11 @@ interface EnquiryRecord {
   sourcePropertyName: string | null;
   status: 'New' | 'Contacted' | 'Visit Scheduled' | 'Closed';
   createdAt: string;
+  notifications?: {
+    email?: ChannelDeliveryResult;
+    whatsapp?: ChannelDeliveryResult;
+    webhook?: ChannelDeliveryResult;
+  };
 }
 
 interface PropertyOverride {
@@ -72,6 +87,7 @@ interface ConfigOverride {
   businessPhone?: string;
   whatsappNumber?: string;
   businessEmail?: string;
+  notificationEmail?: string;
   websiteUrl?: string;
   googleMapsUrl?: string;
 }
@@ -133,6 +149,249 @@ function safeTrim(val: unknown, maxLen = 500): string {
   return val.trim().slice(0, maxLen);
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getRecipientEmail(store: StoreSchema): string {
+  return (
+    safeTrim(process.env.NOTIFICATION_EMAIL, 160) ||
+    safeTrim(store.configOverrides.notificationEmail, 160) ||
+    DEFAULT_NOTIFICATION_EMAIL
+  );
+}
+
+function isEmailProviderConfigured(): boolean {
+  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  const smtpUser = (process.env.SMTP_USER || '').trim();
+  const smtpPass = (process.env.SMTP_PASS || '').trim();
+  return Boolean(resendKey || (smtpUser && smtpPass));
+}
+
+function isWhatsAppCloudConfigured(): boolean {
+  return Boolean(
+    (process.env.WHATSAPP_CLOUD_TOKEN || '').trim() &&
+      (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim() &&
+      (process.env.WHATSAPP_ADMIN_RECIPIENT || '').trim()
+  );
+}
+
+function buildEnquiryEmailContent(record: EnquiryRecord): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const istTime = new Date(record.createdAt).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+  const subject = `New AJ GRAND Enquiry: ${record.fullName} (${record.interestedBhk} · ${record.preferredFloor})`;
+  const text = [
+    'New Rental Enquiry Received – AJ GRAND',
+    '----------------------------------------',
+    `Applicant Name : ${record.fullName}`,
+    `Mobile Number  : +91 ${record.mobileNumber}`,
+    `WhatsApp Link  : https://wa.me/91${record.mobileNumber}`,
+    `Interested In  : ${record.interestedBhk}`,
+    `Preferred Floor: ${record.preferredFloor}`,
+    record.sourcePropertyName ? `Source Unit    : ${record.sourcePropertyName}` : '',
+    record.preferredVisitDate ? `Visit Date     : ${record.preferredVisitDate}` : '',
+    record.message ? `Message        : ${record.message}` : '',
+    `Received At    : ${istTime} IST`,
+    `Enquiry ID     : ${record.id}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #fbf9f6; border: 1px solid #e8e2d9; padding: 24px; color: #1a1918;">
+      <p style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #725b38; margin: 0 0 8px;">AJ GRAND · New Rental Enquiry</p>
+      <h2 style="font-family: Georgia, serif; font-size: 24px; font-weight: 500; margin: 0 0 18px;">${escapeHtml(record.fullName)}</h2>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; background: #ffffff; border: 1px solid #e8e2d9;">
+        <tr><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9; color: #605e5c;">Mobile</td><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9; font-weight: 600;"><a href="tel:+91${escapeHtml(record.mobileNumber)}" style="color: #1a1918;">+91 ${escapeHtml(record.mobileNumber)}</a></td></tr>
+        <tr><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9; color: #605e5c;">Interested Property</td><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9;">${escapeHtml(record.interestedBhk)} · ${escapeHtml(record.preferredFloor)}</td></tr>
+        ${record.sourcePropertyName ? `<tr><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9; color: #605e5c;">Source Residence</td><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9;">${escapeHtml(record.sourcePropertyName)}</td></tr>` : ''}
+        ${record.preferredVisitDate ? `<tr><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9; color: #605e5c;">Preferred Visit Date</td><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9;">${escapeHtml(record.preferredVisitDate)}</td></tr>` : ''}
+        ${record.message ? `<tr><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9; color: #605e5c;">Message</td><td style="padding: 10px 14px; border-bottom: 1px solid #e8e2d9;">${escapeHtml(record.message)}</td></tr>` : ''}
+        <tr><td style="padding: 10px 14px; color: #605e5c;">Received</td><td style="padding: 10px 14px;">${escapeHtml(istTime)} IST</td></tr>
+      </table>
+      <div style="margin-top: 18px;">
+        <a href="https://wa.me/91${escapeHtml(record.mobileNumber)}" style="display: inline-block; padding: 10px 18px; background: #1a1918; color: #fbf9f6; text-decoration: none; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;">Reply on WhatsApp</a>
+        <a href="tel:+91${escapeHtml(record.mobileNumber)}" style="display: inline-block; margin-left: 8px; padding: 10px 18px; background: #c5a880; color: #1a1918; text-decoration: none; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;">Call Applicant</a>
+      </div>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
+async function sendEmailNotification(
+  record: EnquiryRecord,
+  recipientEmail: string
+): Promise<ChannelDeliveryResult> {
+  const attemptedAt = new Date().toISOString();
+  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+  const smtpPort = Number(process.env.SMTP_PORT) || 465;
+  const smtpUser = (process.env.SMTP_USER || '').trim();
+  const smtpPass = (process.env.SMTP_PASS || '').trim();
+  const { subject, text, html } = buildEnquiryEmailContent(record);
+
+  if (resendKey) {
+    try {
+      const fromAddress = (process.env.EMAIL_FROM || 'AJ GRAND <onboarding@resend.dev>').trim();
+      const resp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: fromAddress,
+          to: [recipientEmail],
+          subject,
+          text,
+          html,
+        }),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        return { status: 'failed', detail: `Resend API error (${resp.status}): ${errText.slice(0, 140)}`, attemptedAt };
+      }
+      return { status: 'sent', detail: `Delivered to ${recipientEmail} via Resend`, attemptedAt };
+    } catch (err) {
+      return {
+        status: 'failed',
+        detail: err instanceof Error ? err.message : 'Resend delivery error',
+        attemptedAt,
+      };
+    }
+  }
+
+  if (smtpUser && smtpPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+      await transporter.sendMail({
+        from: `"AJ GRAND Enquiries" <${smtpUser}>`,
+        to: recipientEmail,
+        subject,
+        text,
+        html,
+      });
+      return { status: 'sent', detail: `Delivered to ${recipientEmail} via SMTP`, attemptedAt };
+    } catch (err) {
+      return {
+        status: 'failed',
+        detail: err instanceof Error ? err.message : 'SMTP delivery error',
+        attemptedAt,
+      };
+    }
+  }
+
+  return {
+    status: 'not_configured',
+    detail: `Recipient set (${recipientEmail}); add SMTP_PASS (Gmail App Password) or RESEND_API_KEY in Secrets/.env to send live emails.`,
+    attemptedAt,
+  };
+}
+
+async function sendWhatsAppAdminNotification(record: EnquiryRecord): Promise<ChannelDeliveryResult> {
+  const attemptedAt = new Date().toISOString();
+  const token = (process.env.WHATSAPP_CLOUD_TOKEN || '').trim();
+  const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  const adminRecipient = (process.env.WHATSAPP_ADMIN_RECIPIENT || '').replace(/\D/g, '');
+
+  if (!token || !phoneNumberId || !adminRecipient) {
+    return {
+      status: 'not_configured',
+      detail: 'Add WHATSAPP_CLOUD_TOKEN, WHATSAPP_PHONE_NUMBER_ID & WHATSAPP_ADMIN_RECIPIENT (or ENQUIRY_WEBHOOK_URL) for automatic WhatsApp push alerts.',
+      attemptedAt,
+    };
+  }
+
+  const bodyText = [
+    `New AJ GRAND Enquiry`,
+    `Name: ${record.fullName}`,
+    `Mobile: +91 ${record.mobileNumber}`,
+    `Interest: ${record.interestedBhk} (${record.preferredFloor})`,
+    record.sourcePropertyName ? `Unit: ${record.sourcePropertyName}` : '',
+    record.preferredVisitDate ? `Visit Date: ${record.preferredVisitDate}` : '',
+    record.message ? `Message: ${record.message}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: adminRecipient,
+          type: 'text',
+          text: { body: bodyText },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const errText = await resp.text();
+      return { status: 'failed', detail: `WhatsApp API error (${resp.status}): ${errText.slice(0, 140)}`, attemptedAt };
+    }
+    return { status: 'sent', detail: `Delivered via WhatsApp Cloud API`, attemptedAt };
+  } catch (err) {
+    return {
+      status: 'failed',
+      detail: err instanceof Error ? err.message : 'WhatsApp Cloud delivery error',
+      attemptedAt,
+    };
+  }
+}
+
+async function sendWebhookNotification(record: EnquiryRecord): Promise<ChannelDeliveryResult> {
+  const attemptedAt = new Date().toISOString();
+  const webhookUrl = (process.env.ENQUIRY_WEBHOOK_URL || '').trim();
+  if (!webhookUrl) {
+    return { status: 'not_configured', detail: 'ENQUIRY_WEBHOOK_URL not set', attemptedAt };
+  }
+  try {
+    const resp = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+    if (!resp.ok) {
+      return { status: 'failed', detail: `Webhook returned HTTP ${resp.status}`, attemptedAt };
+    }
+    return { status: 'sent', detail: 'Forwarded to external webhook', attemptedAt };
+  } catch (err) {
+    return {
+      status: 'failed',
+      detail: err instanceof Error ? err.message : 'Webhook request error',
+      attemptedAt,
+    };
+  }
+}
+
 function requireAdminAuth(req: Request, res: Response, next: NextFunction): void {
   const configuredPasscode = (process.env.ADMIN_PASSCODE || '').trim();
   if (!configuredPasscode) {
@@ -158,7 +417,6 @@ async function startServer(): Promise<void> {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  // Basic security headers
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -180,7 +438,6 @@ async function startServer(): Promise<void> {
   app.post('/api/enquiries', async (req, res) => {
     const body = req.body as Record<string, unknown>;
 
-    // Honeypot check against automated bots
     const honeypot = safeTrim(body.website, 100);
     if (honeypot) {
       res.status(200).json({
@@ -261,20 +518,21 @@ async function startServer(): Promise<void> {
       createdAt: new Date().toISOString(),
     };
 
+    const recipientEmail = getRecipientEmail(store);
+    const [emailResult, whatsappResult, webhookResult] = await Promise.all([
+      sendEmailNotification(newRecord, recipientEmail),
+      sendWhatsAppAdminNotification(newRecord),
+      sendWebhookNotification(newRecord),
+    ]);
+
+    newRecord.notifications = {
+      email: emailResult,
+      whatsapp: whatsappResult,
+      webhook: webhookResult,
+    };
+
     store.enquiries.unshift(newRecord);
     saveStore(store);
-
-    // Optional external webhook forwarding (CRM / Google Sheets / Zapier)
-    const webhookUrl = (process.env.ENQUIRY_WEBHOOK_URL || '').trim();
-    if (webhookUrl) {
-      fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRecord),
-      }).catch((err) => {
-        console.error('Webhook forwarding failed:', err);
-      });
-    }
 
     res.status(201).json({
       ok: true,
@@ -296,8 +554,40 @@ async function startServer(): Promise<void> {
       configOverrides: store.configOverrides,
       integrationStatus: {
         adminPasscodeConfigured: Boolean((process.env.ADMIN_PASSCODE || '').trim()),
+        notificationEmail: getRecipientEmail(store),
+        emailProviderConfigured: isEmailProviderConfigured(),
+        whatsappCloudConfigured: isWhatsAppCloudConfigured(),
         enquiryWebhookConfigured: Boolean((process.env.ENQUIRY_WEBHOOK_URL || '').trim()),
       },
+    });
+  });
+
+  app.post('/api/admin/test-email', requireAdminAuth, async (_req, res) => {
+    const store = ensureStore();
+    const recipientEmail = getRecipientEmail(store);
+    const testRecord: EnquiryRecord = {
+      id: 'test-notification',
+      fullName: 'AJ GRAND Test Alert',
+      mobileNumber: '9999999999',
+      interestedBhk: '2 BHK',
+      preferredFloor: 'Second Floor',
+      preferredVisitDate: new Date().toISOString().split('T')[0],
+      message: 'This is a test enquiry notification from your AJ GRAND Owner Portal.',
+      sourcePropertyId: 'second-floor-2bhk',
+      sourcePropertyName: 'Second Floor – 2 BHK',
+      status: 'New',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await sendEmailNotification(testRecord, recipientEmail);
+    if (result.status === 'sent') {
+      res.json({ ok: true, result });
+      return;
+    }
+    res.status(result.status === 'not_configured' ? 400 : 502).json({
+      ok: false,
+      error: result.detail,
+      result,
     });
   });
 
@@ -375,6 +665,7 @@ async function startServer(): Promise<void> {
       businessPhone: safeTrim(body.businessPhone, 40),
       whatsappNumber: safeTrim(body.whatsappNumber, 40),
       businessEmail: safeTrim(body.businessEmail, 120),
+      notificationEmail: safeTrim(body.notificationEmail, 160),
       websiteUrl: safeTrim(body.websiteUrl, 200),
       googleMapsUrl: safeTrim(body.googleMapsUrl, 300),
     };

@@ -6,9 +6,19 @@ import {
   AlertCircle,
   Save,
   RefreshCw,
+  Phone,
+  MessageCircle,
+  Mail,
+  Send,
 } from 'lucide-react';
 import { Property } from '../data/properties';
 import { SiteConfig } from '../config/siteConfig';
+
+interface ChannelDeliveryResult {
+  status: 'sent' | 'not_configured' | 'failed';
+  detail: string;
+  attemptedAt: string;
+}
 
 interface EnquiryRecord {
   id: string;
@@ -22,6 +32,19 @@ interface EnquiryRecord {
   sourcePropertyName: string | null;
   status: 'New' | 'Contacted' | 'Visit Scheduled' | 'Closed';
   createdAt: string;
+  notifications?: {
+    email?: ChannelDeliveryResult;
+    whatsapp?: ChannelDeliveryResult;
+    webhook?: ChannelDeliveryResult;
+  };
+}
+
+interface IntegrationStatus {
+  adminPasscodeConfigured: boolean;
+  notificationEmail: string;
+  emailProviderConfigured: boolean;
+  whatsappCloudConfigured: boolean;
+  enquiryWebhookConfigured: boolean;
 }
 
 interface AdminDashboardProps {
@@ -44,10 +67,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [loading, setLoading] = useState(false);
 
   const [enquiries, setEnquiries] = useState<EnquiryRecord[]>([]);
-  const [integrationStatus, setIntegrationStatus] = useState<{
-    adminPasscodeConfigured: boolean;
-    enquiryWebhookConfigured: boolean;
-  } | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
+  const [testingEmail, setTestingEmail] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'enquiries' | 'properties' | 'settings'>('enquiries');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -73,11 +94,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     businessPhone: config.contact.businessPhone,
     whatsappNumber: config.contact.whatsappNumber,
     businessEmail: config.contact.businessEmail,
+    notificationEmail: 'ajservices2132@gmail.com',
     websiteUrl: config.contact.websiteUrl,
     googleMapsUrl: config.maps.googleMapsUrl,
   });
 
-  const hydrateDrafts = (propsList: Property[], cfg: SiteConfig) => {
+  const hydrateDrafts = (
+    propsList: Property[],
+    cfg: SiteConfig,
+    notifEmail?: string
+  ) => {
     const drafts: typeof propertyDrafts = {};
     for (const p of propsList) {
       drafts[p.id] = {
@@ -95,6 +121,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       businessPhone: cfg.contact.businessPhone,
       whatsappNumber: cfg.contact.whatsappNumber,
       businessEmail: cfg.contact.businessEmail,
+      notificationEmail: notifEmail || 'ajservices2132@gmail.com',
       websiteUrl: cfg.contact.websiteUrl,
       googleMapsUrl: cfg.maps.googleMapsUrl,
     });
@@ -110,10 +137,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
       const data = (await res.json()) as {
         enquiries?: EnquiryRecord[];
-        integrationStatus?: {
-          adminPasscodeConfigured: boolean;
-          enquiryWebhookConfigured: boolean;
-        };
+        configOverrides?: { notificationEmail?: string };
+        integrationStatus?: IntegrationStatus;
         error?: string;
         setupRequired?: boolean;
       };
@@ -129,7 +154,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setAuthenticatedPasscode(code);
       setEnquiries(data.enquiries || []);
       setIntegrationStatus(data.integrationStatus || null);
-      hydrateDrafts(properties, config);
+      hydrateDrafts(
+        properties,
+        config,
+        data.integrationStatus?.notificationEmail || data.configOverrides?.notificationEmail
+      );
     } catch {
       setAuthError('Unable to reach server.');
     } finally {
@@ -216,7 +245,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
     if (res.ok) {
       await onDataUpdated();
-      setStatusMessage('Contact & location settings updated.');
+      await fetchDashboard(authenticatedPasscode);
+      setStatusMessage('Contact & alert notification settings updated.');
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!authenticatedPasscode) return;
+    setTestingEmail(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/admin/test-email', {
+        method: 'POST',
+        headers: { 'x-admin-passcode': authenticatedPasscode },
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string; result?: { detail?: string } };
+      if (res.ok && data.ok) {
+        setStatusMessage(data.result?.detail || 'Test alert email sent successfully.');
+      } else {
+        setStatusMessage(data.error || 'Could not send test email. Check SMTP_PASS or RESEND_API_KEY.');
+      }
+    } catch {
+      setStatusMessage('Network error while sending test email.');
+    } finally {
+      setTestingEmail(false);
     }
   };
 
@@ -360,56 +412,110 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {enquiries.map((item) => (
-                  <div
-                    key={item.id}
-                    className="bg-[#ffffff] border border-[#e8e2d9] rounded-[6px] p-5 grid grid-cols-1 md:grid-cols-12 gap-4 items-center"
-                  >
-                    <div className="md:col-span-4">
-                      <p className="font-semibold text-[#1a1918]">{item.fullName}</p>
-                      <p className="text-sm text-[#725b38] tabular-nums">{item.mobileNumber}</p>
-                      <p className="text-xs text-[#605e5c] mt-1 tabular-nums">
-                        {new Date(item.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="md:col-span-5 text-xs text-[#4d463c] space-y-1">
-                      <p>
-                        <strong>Interest:</strong> {item.interestedBhk} · {item.preferredFloor}
-                      </p>
-                      {item.sourcePropertyName && (
-                        <p>
-                          <strong>Source Unit:</strong> {item.sourcePropertyName}
+                {enquiries.map((item) => {
+                  const replyWhatsAppHref = `https://wa.me/91${item.mobileNumber}?text=${encodeURIComponent(
+                    `Hello ${item.fullName}, thank you for enquiring about AJ GRAND (${item.interestedBhk} · ${item.preferredFloor}). When would you like to schedule your visit?`
+                  )}`;
+                  const emailForwardHref = `mailto:${encodeURIComponent(
+                    integrationStatus?.notificationEmail || 'ajservices2132@gmail.com'
+                  )}?subject=${encodeURIComponent(
+                    `AJ GRAND Enquiry: ${item.fullName} (${item.interestedBhk})`
+                  )}&body=${encodeURIComponent(
+                    `Name: ${item.fullName}\nMobile: +91 ${item.mobileNumber}\nInterest: ${item.interestedBhk} (${item.preferredFloor})\nVisit Date: ${item.preferredVisitDate || 'Not specified'}\nMessage: ${item.message || 'None'}`
+                  )}`;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="bg-[#ffffff] border border-[#e8e2d9] rounded-[6px] p-5 grid grid-cols-1 md:grid-cols-12 gap-4 items-center"
+                    >
+                      <div className="md:col-span-4">
+                        <p className="font-semibold text-[#1a1918]">{item.fullName}</p>
+                        <p className="text-sm text-[#725b38] tabular-nums">+91 {item.mobileNumber}</p>
+                        <p className="text-xs text-[#605e5c] mt-1 tabular-nums">
+                          {new Date(item.createdAt).toLocaleString()}
                         </p>
-                      )}
-                      {item.preferredVisitDate && (
+                        <div className="mt-2.5 flex flex-wrap gap-2">
+                          <a
+                            href={`tel:+91${item.mobileNumber}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-[#1a1918] text-[#fbf9f6] rounded-[3px] hover:bg-[#725b38]"
+                          >
+                            <Phone className="w-3 h-3" />
+                            <span>Call</span>
+                          </a>
+                          <a
+                            href={replyWhatsAppHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-[#c5a880] text-[#1a1918] rounded-[3px] hover:bg-[#e0c298]"
+                          >
+                            <MessageCircle className="w-3 h-3" />
+                            <span>WhatsApp</span>
+                          </a>
+                          <a
+                            href={emailForwardHref}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-[#d1c5b8] text-[#1a1918] rounded-[3px] hover:bg-[#f5f3f0]"
+                          >
+                            <Mail className="w-3 h-3 text-[#725b38]" />
+                            <span>Email</span>
+                          </a>
+                        </div>
+                      </div>
+                      <div className="md:col-span-5 text-xs text-[#4d463c] space-y-1">
                         <p>
-                          <strong>Preferred Visit:</strong> {item.preferredVisitDate}
+                          <strong>Interest:</strong> {item.interestedBhk} · {item.preferredFloor}
                         </p>
-                      )}
-                      {item.message && (
-                        <p className="text-[#1a1918] pt-1">&ldquo;{item.message}&rdquo;</p>
-                      )}
+                        {item.sourcePropertyName && (
+                          <p>
+                            <strong>Source Unit:</strong> {item.sourcePropertyName}
+                          </p>
+                        )}
+                        {item.preferredVisitDate && (
+                          <p>
+                            <strong>Preferred Visit:</strong> {item.preferredVisitDate}
+                          </p>
+                        )}
+                        {item.message && (
+                          <p className="text-[#1a1918] pt-1">&ldquo;{item.message}&rdquo;</p>
+                        )}
+                        {item.notifications && (
+                          <p className="pt-1.5 text-[11px] text-[#605e5c]">
+                            <strong>Email Alert:</strong>{' '}
+                            {item.notifications.email?.status === 'sent'
+                              ? 'Sent'
+                              : item.notifications.email?.status === 'failed'
+                                ? `Failed (${item.notifications.email.detail})`
+                                : 'Pending SMTP_PASS / RESEND_API_KEY'}{' '}
+                            · <strong>WhatsApp Push:</strong>{' '}
+                            {item.notifications.whatsapp?.status === 'sent'
+                              ? 'Sent'
+                              : item.notifications.whatsapp?.status === 'failed'
+                                ? 'Failed'
+                                : 'Not configured'}
+                          </p>
+                        )}
+                      </div>
+                      <div className="md:col-span-3 flex justify-end">
+                        <select
+                          aria-label={`Status for ${item.fullName}`}
+                          value={item.status}
+                          onChange={(e) =>
+                            handleEnquiryStatusChange(
+                              item.id,
+                              e.target.value as EnquiryRecord['status']
+                            )
+                          }
+                          className="px-3 py-2 text-xs font-semibold bg-[#f5f3f0] border border-[#d1c5b8] rounded-[4px]"
+                        >
+                          <option value="New">New</option>
+                          <option value="Contacted">Contacted</option>
+                          <option value="Visit Scheduled">Visit Scheduled</option>
+                          <option value="Closed">Closed</option>
+                        </select>
+                      </div>
                     </div>
-                    <div className="md:col-span-3 flex justify-end">
-                      <select
-                        aria-label={`Status for ${item.fullName}`}
-                        value={item.status}
-                        onChange={(e) =>
-                          handleEnquiryStatusChange(
-                            item.id,
-                            e.target.value as EnquiryRecord['status']
-                          )
-                        }
-                        className="px-3 py-2 text-xs font-semibold bg-[#f5f3f0] border border-[#d1c5b8] rounded-[4px]"
-                      >
-                        <option value="New">New</option>
-                        <option value="Contacted">Contacted</option>
-                        <option value="Visit Scheduled">Visit Scheduled</option>
-                        <option value="Closed">Closed</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -623,7 +729,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#605e5c] mb-1">
-                    Website URL
+                    Enquiry Alert Email (Owner)
+                  </label>
+                  <input
+                    type="email"
+                    value={contactDraft.notificationEmail}
+                    onChange={(e) =>
+                      setContactDraft((p) => ({ ...p, notificationEmail: e.target.value }))
+                    }
+                    placeholder="ajservices2132@gmail.com"
+                    className="w-full px-3 py-2 text-sm border border-[#e8e2d9] rounded-[4px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#605e5c] mb-1">
+                    Public Website URL
                   </label>
                   <input
                     type="url"
@@ -650,22 +770,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="inline-flex items-center gap-2 px-6 py-3 text-xs font-semibold uppercase tracking-[0.08em] bg-[#1a1918] text-[#fbf9f6] rounded-[4px] hover:bg-[#725b38] cursor-pointer"
-              >
-                <Save className="w-4 h-4" />
-                <span>Save Contact Settings</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 px-6 py-3 text-xs font-semibold uppercase tracking-[0.08em] bg-[#1a1918] text-[#fbf9f6] rounded-[4px] hover:bg-[#725b38] cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Contact Settings</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={testingEmail}
+                  onClick={handleSendTestEmail}
+                  className="inline-flex items-center gap-2 px-5 py-3 text-xs font-semibold uppercase tracking-[0.08em] bg-[#c5a880] text-[#1a1918] rounded-[4px] hover:bg-[#e0c298] disabled:opacity-60 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{testingEmail ? 'Sending...' : 'Send Test Email Alert'}</span>
+                </button>
+              </div>
             </form>
 
-            <div className="lg:col-span-5 bg-[#f4efea] border border-[#e8e2d9] rounded-[6px] p-6 space-y-3">
+            <div className="lg:col-span-5 bg-[#f4efea] border border-[#e8e2d9] rounded-[6px] p-6 space-y-4">
               <h2 className="font-editorial text-2xl text-[#1a1918]">
-                Ad Tracking &amp; Backend Status
+                Alerts, Tracking &amp; Backend Status
               </h2>
               <dl className="divide-y divide-[#e8e2d9] text-xs">
                 {[
                   ['Enquiry Storage (Server)', 'Active (data/store.json)'],
+                  [
+                    'Alert Email Recipient',
+                    integrationStatus?.notificationEmail || 'ajservices2132@gmail.com',
+                  ],
+                  [
+                    'Email Delivery (SMTP / Resend)',
+                    integrationStatus?.emailProviderConfigured
+                      ? 'Active & Ready'
+                      : 'Add SMTP_PASS or RESEND_API_KEY in Secrets/.env',
+                  ],
+                  [
+                    'WhatsApp Auto-Push (Cloud API)',
+                    integrationStatus?.whatsappCloudConfigured
+                      ? 'Active & Ready'
+                      : 'Optional (WHATSAPP_CLOUD_TOKEN)',
+                  ],
                   [
                     'Enquiry Webhook',
                     integrationStatus?.enquiryWebhookConfigured
@@ -701,6 +848,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 ))}
               </dl>
+              <p className="text-[11px] text-[#605e5c] leading-[1.6] pt-2 border-t border-[#e8e2d9]">
+                To enable automatic instant emails to <strong>ajservices2132@gmail.com</strong>,
+                generate a Google Account App Password for <code>ajservices2132@gmail.com</code> and
+                add it as <code>SMTP_PASS</code> in AI Studio Secrets (or <code>RESEND_API_KEY</code>).
+              </p>
             </div>
           </div>
         )}

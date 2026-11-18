@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, AlertCircle, Phone, MessageCircle, Loader2 } from 'lucide-react';
 import { Property } from '../data/properties';
-import { SiteConfig } from '../config/siteConfig';
+import { SiteConfig, sanitizeWhatsAppDigits } from '../config/siteConfig';
 import { trackEvent } from '../utils/analytics';
 
 interface EnquirySectionProps {
@@ -33,6 +33,7 @@ export const EnquirySection: React.FC<EnquirySectionProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [submittedWhatsAppUrl, setSubmittedWhatsAppUrl] = useState<string | null>(null);
   const [lastSubmittedSignature, setLastSubmittedSignature] = useState<string | null>(null);
 
   useEffect(() => {
@@ -128,6 +129,26 @@ export const EnquirySection: React.FC<EnquirySectionProps> = ({
         data.message ||
           'Thank you. Your enquiry has been recorded and our team will contact you shortly.'
       );
+
+      const waDigits = sanitizeWhatsAppDigits(config.contact.whatsappNumber);
+      if (waDigits) {
+        const waText = [
+          `Hello AJ GRAND, I just submitted an enquiry on your website.`,
+          `Name: ${fullName.trim()}`,
+          `Mobile: ${mobileNumber.trim()}`,
+          `Interested: ${interestedBhk} (${preferredFloor})`,
+          selectedProperty?.name ? `Residence: ${selectedProperty.name}` : '',
+          preferredVisitDate ? `Preferred Visit Date: ${preferredVisitDate}` : '',
+          message.trim() ? `Message: ${message.trim()}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+        setSubmittedWhatsAppUrl(
+          `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}`
+        );
+      } else {
+        setSubmittedWhatsAppUrl(null);
+      }
 
       trackEvent('submit_enquiry_success', config, {
         propertyId: selectedProperty?.id,
@@ -362,10 +383,25 @@ export const EnquirySection: React.FC<EnquirySectionProps> = ({
               {successMsg && (
                 <div
                   role="status"
-                  className="mt-5 p-4 bg-[#f4efea] border border-[#c5a880] rounded-[4px] flex items-start gap-3 text-sm text-[#1a1918]"
+                  className="mt-5 p-4 bg-[#f4efea] border border-[#c5a880] rounded-[4px] space-y-3 text-sm text-[#1a1918]"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-[#725b38] shrink-0 mt-0.5" />
-                  <span>{successMsg}</span>
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-4 h-4 text-[#725b38] shrink-0 mt-0.5" />
+                    <span>{successMsg}</span>
+                  </div>
+                  {submittedWhatsAppUrl && (
+                    <div className="pl-7">
+                      <a
+                        href={submittedWhatsAppUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] bg-[#1a1918] text-[#fbf9f6] rounded-[4px] hover:bg-[#725b38] transition-colors"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 text-[#e0c298]" />
+                        <span>Also Send Summary on WhatsApp</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
