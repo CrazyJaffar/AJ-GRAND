@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Building2 } from 'lucide-react';
 
 interface ResilientImageProps {
@@ -19,6 +19,10 @@ export const ResilientImage: React.FC<ResilientImageProps> = ({
   objectPosition = 'center',
 }) => {
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
 
   if (failed || !src) {
     return (

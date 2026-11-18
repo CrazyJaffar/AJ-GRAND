@@ -4,11 +4,13 @@ import { Menu, X } from 'lucide-react';
 interface NavbarProps {
   onNavigateHomeSection: (sectionId: string) => void;
   onScheduleVisitClick: () => void;
+  onOpenAdmin: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onNavigateHomeSection,
   onScheduleVisitClick,
+  onOpenAdmin,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -40,10 +42,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           AJ GRAND
         </a>
 
-        {/* Zone 2: 5 concise single-line navigation links */}
+        {/* Zone 2: Clean single-line navigation links + Owner Portal */}
         <nav
           aria-label="Primary navigation"
-          className="hidden lg:flex items-center gap-8 text-sm font-medium text-[#4d463c]"
+          className="hidden lg:flex items-center gap-7 text-sm font-medium text-[#4d463c]"
         >
           {navLinks.map((link) => (
             <button
@@ -55,6 +57,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               {link.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onOpenAdmin();
+            }}
+            className="whitespace-nowrap shrink-0 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[#725b38] border border-[#d1c5b8] bg-[#f5f3f0] rounded-[4px] hover:bg-[#1a1918] hover:text-[#fbf9f6] hover:border-[#1a1918] transition-colors cursor-pointer"
+          >
+            Owner Portal
+          </button>
         </nav>
 
         {/* Zone 3: 1 Primary CTA button + mobile menu trigger */}
@@ -96,6 +108,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {link.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenAdmin();
+              }}
+              className="w-full text-left py-3 px-2 text-base font-semibold text-[#725b38] border-b border-[#e8e2d9]/60 hover:text-[#1a1918] transition-colors cursor-pointer min-h-[44px]"
+            >
+              Owner Portal
+            </button>
             <button
               type="button"
               onClick={() => {

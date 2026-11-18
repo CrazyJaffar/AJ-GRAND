@@ -25,6 +25,7 @@ export function useSiteState() {
     Record<string, PublicPropertyOverride>
   >({});
   const [configOverrides, setConfigOverrides] = useState<PublicConfigOverride>({});
+  const [serverMapsApiKey, setServerMapsApiKey] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   const refreshPublicData = useCallback(async () => {
@@ -34,12 +35,16 @@ export function useSiteState() {
       const data = (await res.json()) as {
         propertyOverrides?: Record<string, PublicPropertyOverride>;
         configOverrides?: PublicConfigOverride;
+        mapsApiKey?: string;
       };
       if (data.propertyOverrides) {
         setPropertyOverrides(data.propertyOverrides);
       }
       if (data.configOverrides) {
         setConfigOverrides(data.configOverrides);
+      }
+      if (typeof data.mapsApiKey === 'string') {
+        setServerMapsApiKey(data.mapsApiKey);
       }
     } catch {
       // Fall back silently to static INITIAL_PROPERTIES and DEFAULT_SITE_CONFIG
@@ -75,26 +80,27 @@ export function useSiteState() {
       },
       maps: {
         ...DEFAULT_SITE_CONFIG.maps,
+        googleMapsApiKey:
+          DEFAULT_SITE_CONFIG.maps.googleMapsApiKey || serverMapsApiKey || '',
         googleMapsUrl:
           configOverrides.googleMapsUrl || DEFAULT_SITE_CONFIG.maps.googleMapsUrl,
       },
     };
-  }, [configOverrides]);
+  }, [configOverrides, serverMapsApiKey]);
 
   const properties: Property[] = useMemo(() => {
     return INITIAL_PROPERTIES.map((prop) => {
       const ov = propertyOverrides[prop.id];
       if (!ov) return prop;
 
-      const updatedImages =
-        Array.isArray(ov.imageUrls) && ov.imageUrls.length > 0
-          ? ov.imageUrls.map((url, idx) => ({
-              url,
-              alt: prop.images[idx]?.alt || `${prop.name} interior view ${idx + 1}`,
-              caption: prop.images[idx]?.caption || `${prop.name} · View ${idx + 1}`,
-              isTemporaryPlaceholder: false,
-            }))
-          : prop.images;
+      const updatedImages = Array.isArray(ov.imageUrls)
+        ? ov.imageUrls.map((url, idx) => ({
+            url,
+            alt: prop.images[idx]?.alt || `${prop.name} interior view ${idx + 1}`,
+            caption: prop.images[idx]?.caption || `${prop.name} · Photo ${idx + 1}`,
+            isTemporaryPlaceholder: false,
+          }))
+        : prop.images;
 
       return {
         ...prop,

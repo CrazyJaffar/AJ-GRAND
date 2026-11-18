@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import nodemailer from 'nodemailer';
+import { GoogleGenAI } from '@google/genai';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -15,6 +16,7 @@ dotenv.config({ path: path.join(__dirname, '.env'), override: true });
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 const DATA_DIR = path.resolve(__dirname, 'data');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
 const DEFAULT_NOTIFICATION_EMAIL = 'ajservices2132@gmail.com';
 
@@ -129,6 +131,32 @@ function saveStore(store: StoreSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), 'utf-8');
+}
+
+function cleanupUnusedUploadFiles(store: StoreSchema, candidateUrls: string[]): void {
+  const stillReferenced = new Set<string>();
+  for (const override of Object.values(store.propertyOverrides)) {
+    if (Array.isArray(override?.imageUrls)) {
+      for (const u of override.imageUrls) {
+        stillReferenced.add(u);
+      }
+    }
+  }
+
+  const resolvedUploadsRoot = path.resolve(UPLOADS_DIR);
+  for (const url of candidateUrls) {
+    if (!url.startsWith('/uploads/') || stillReferenced.has(url)) continue;
+    const relative = url.slice('/uploads/'.length);
+    const targetPath = path.resolve(resolvedUploadsRoot, relative);
+    if (!targetPath.startsWith(resolvedUploadsRoot + path.sep)) continue;
+    try {
+      if (fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 }
 
 function normalizeIndianMobile(raw: string): string | null {
@@ -414,8 +442,12 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction): void
 }
 
 async function startServer(): Promise<void> {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+
   const app = express();
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '10mb' }));
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -423,16 +455,153 @@ async function startServer(): Promise<void> {
     next();
   });
 
+  app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '7d' }));
+  app.use('/uploads', (_req, res) => {
+    res.status(404).json({ error: 'Uploaded image not found.' });
+  });
+
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, timestamp: new Date().toISOString() });
   });
 
+function getGeminiClient(): GoogleGenAI | null {
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) return null;
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+function buildConciergeSystemInstruction(store: StoreSchema): string {
+  const unitSummaries = [
+    { id: 'ground-floor-2bhk', label: 'Ground Floor – 2 BHK (600 sq.ft., Semi-furnished)' },
+    { id: 'second-floor-2bhk', label: 'Second Floor – 2 BHK (600 sq.ft., Semi-furnished)' },
+    { id: 'second-floor-luxury-1bhk', label: 'Second Floor – Luxury 1 BHK (450 sq.ft., Dual open balconies)' },
+    { id: 'third-floor-2bhk', label: 'Third Floor – 2 BHK (600 sq.ft., Semi-furnished)' },
+    { id: 'third-floor-luxury-1bhk', label: 'Third Floor – Luxury 1 BHK (450 sq.ft., Dual open balconies)' },
+  ].map((u) => {
+    const ov = store.propertyOverrides[u.id] || {};
+    const status = ov.availabilityStatus || 'Available for Rent';
+    const rent = ov.rentAmount ? `Rent: ${ov.rentAmount}` : 'Rent: Shared on enquiry/visit';
+    const deposit = ov.securityDeposit ? `Deposit: ${ov.securityDeposit}` : '';
+    const availDate = ov.availabilityDate ? `Available from: ${ov.availabilityDate}` : '';
+    return `- ${u.label} | Status: ${status} | ${[rent, deposit, availDate].filter(Boolean).join(' | ')}`;
+  });
+
+  return [
+    'You are the AJ GRAND Concierge, a warm, concise, and accurate leasing assistant for AJ GRAND ("Ayesha & Jaffar"), a newly constructed G+3 boutique residential rental building located at 34, Garden Main Road, Modi Garden, Kaval Bairasandra, Bengaluru, Karnataka 560006, India (Plus Code: 2J82+FV Bengaluru), bordering peaceful green defence land.',
+    '',
+    'FACTS ABOUT AJ GRAND:',
+    '- Direct owner leasing with ZERO brokerage fees.',
+    '- Total rental residences: 5 first-occupancy, freshly painted homes:',
+    ...unitSummaries,
+    '- STRICT RULE: The First Floor is the private residence of the building owner and is NEVER available for rent.',
+    '- 2 BHK Specifications (600 sq.ft. quoted): Living 14.5 x 10 ft with false ceiling; L-shape kitchen 7 x 10 ft + utility 3 x 10 ft; Bedroom 1: 10 x 10 ft with attached Western bath 4 x 9 ft; Bedroom 2: 10 x 10 ft; Common Indian bath 9 x 4 ft; fitted bedroom wardrobes, kitchen storage, niche storage, premium granite & tiles.',
+    '- Luxury 1 BHK Specifications (450 sq.ft. quoted): Living area 9.6 x 16 ft with open balcony; Bedroom 9 x 11 ft with separate open balcony & attached Western bath 4 x 6.8 ft; Kitchen 19 x 6 ft; Utility 3 x 6 ft; premium granite & tiles.',
+    '- Building Amenities: Dedicated aluminum shoe rack per home; big L-shape/bay windows & open balconies for cross-ventilation; triple-source 24/7 water (private on-site water well ensuring zero shortage + borewell + Cauvery); covered car parking; CCTV surveillance; Terrace Garden; solar power; rainwater harvesting; waste management & sewage treatment.',
+    '',
+    'INSTRUCTIONS:',
+    '1. Never fabricate rent figures, security deposit amounts, phone numbers, or move-in dates that are not explicitly listed above or returned by live Google Search.',
+    '2. For neighbourhood, commute times, nearby metro stations, tech parks (such as Manyata Tech Park, Hebbal, Nagawara), schools, hospitals, or current Bengaluru information, use the Google Search grounding tool so answers reflect up-to-date facts.',
+    '3. Keep responses concise (3-6 sentences or clean short bullet points), helpful, and gently invite the visitor to book a site visit or use Call / WhatsApp when they are ready.',
+  ].join('\n');
+}
+
   app.get('/api/public-data', (_req, res) => {
     const store = ensureStore();
+    const mapsApiKey = (
+      process.env.VITE_GOOGLE_MAPS_API_KEY ||
+      process.env.GOOGLE_MAPS_API_KEY ||
+      ''
+    ).trim();
     res.json({
       propertyOverrides: store.propertyOverrides,
       configOverrides: store.configOverrides,
+      mapsApiKey,
     });
+  });
+
+  app.post('/api/chat', async (req, res) => {
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.status(503).json({
+        error: 'Gemini assistant requires GEMINI_API_KEY to be configured in Settings > Secrets.',
+      });
+      return;
+    }
+
+    const body = req.body as { messages?: Array<{ role?: string; text?: string }> };
+    const rawMessages = Array.isArray(body?.messages) ? body.messages : [];
+    const sanitized = rawMessages
+      .filter((m) => (m?.role === 'user' || m?.role === 'model') && typeof m?.text === 'string')
+      .map((m) => ({
+        role: m.role as 'user' | 'model',
+        parts: [{ text: safeTrim(m.text, 2000) }],
+      }))
+      .filter((m) => m.parts[0].text.length > 0)
+      .slice(-14);
+
+    if (sanitized.length === 0 || sanitized[sanitized.length - 1].role !== 'user') {
+      res.status(400).json({ error: 'Please enter a message to ask the AJ GRAND Concierge.' });
+      return;
+    }
+
+    try {
+      const store = ensureStore();
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: sanitized,
+        config: {
+          systemInstruction: buildConciergeSystemInstruction(store),
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const replyText = (response.text || '').trim();
+      if (!replyText) {
+        res.status(502).json({ error: 'The assistant returned an empty response. Please try again.' });
+        return;
+      }
+
+      const rawChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const seenUrls = new Set<string>();
+      const sources: { title: string; uri: string }[] = [];
+      for (const chunk of rawChunks) {
+        const uri = chunk?.web?.uri;
+        if (typeof uri === 'string' && uri && !seenUrls.has(uri)) {
+          seenUrls.add(uri);
+          sources.push({
+            title: safeTrim(chunk?.web?.title || uri, 120),
+            uri,
+          });
+        }
+      }
+
+      res.json({
+        ok: true,
+        reply: replyText,
+        sources: sources.slice(0, 5),
+      });
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : 'Unable to reach Gemini assistant.';
+      const isQuota = rawMessage.includes('429') || rawMessage.includes('RESOURCE_EXHAUSTED');
+      const isAuth =
+        rawMessage.includes('403') ||
+        rawMessage.includes('PERMISSION_DENIED') ||
+        rawMessage.includes('API_KEY');
+      const statusCode = isQuota ? 429 : isAuth ? 403 : 502;
+      const friendlyMessage = isQuota
+        ? 'The AJ GRAND Concierge is temporarily unavailable due to API quota or rate limits. Please try again shortly or use Schedule Site Visit / WhatsApp.'
+        : isAuth
+          ? 'Gemini API authentication failed. Please check the configured GEMINI_API_KEY.'
+          : 'Unable to get a response from the concierge right now. Please try again.';
+      res.status(statusCode).json({ error: friendlyMessage });
+    }
   });
 
   app.post('/api/enquiries', async (req, res) => {
@@ -609,6 +778,45 @@ async function startServer(): Promise<void> {
     res.json({ ok: true, enquiry: target });
   });
 
+  app.post('/api/admin/properties/:id/upload-image', requireAdminAuth, (req, res) => {
+    const id = req.params.id;
+    if (!VALID_PROPERTY_IDS.has(id)) {
+      res.status(400).json({ error: 'Invalid property ID. First Floor cannot be modified.' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl.trim() : '';
+    const match = /^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/i.exec(dataUrl);
+    if (!match) {
+      res.status(400).json({ error: 'Please upload a valid JPG, PNG, or WebP image.' });
+      return;
+    }
+
+    const rawExt = match[1].toLowerCase();
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+    const buffer = Buffer.from(match[2], 'base64');
+    if (buffer.length === 0 || buffer.length > 6 * 1024 * 1024) {
+      res.status(400).json({ error: 'Uploaded image must be under 6 MB.' });
+      return;
+    }
+
+    const propUploadDir = path.join(UPLOADS_DIR, id);
+    if (!fs.existsSync(propUploadDir)) {
+      fs.mkdirSync(propUploadDir, { recursive: true });
+    }
+
+    const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    const targetPath = path.join(propUploadDir, filename);
+    fs.writeFileSync(targetPath, buffer);
+
+    res.status(201).json({
+      ok: true,
+      url: `/uploads/${id}/${filename}`,
+      bytes: buffer.length,
+    });
+  });
+
   app.put('/api/admin/properties/:id', requireAdminAuth, (req, res) => {
     const id = req.params.id;
     if (!VALID_PROPERTY_IDS.has(id)) {
@@ -618,6 +826,7 @@ async function startServer(): Promise<void> {
     const body = req.body as Record<string, unknown>;
     const store = ensureStore();
     const existing = store.propertyOverrides[id] || {};
+    const previousImageUrls = Array.isArray(existing.imageUrls) ? [...existing.imageUrls] : [];
 
     const nextOverride: PropertyOverride = { ...existing };
 
@@ -647,7 +856,9 @@ async function startServer(): Promise<void> {
         nextOverride.availabilityStatus = val as PropertyOverride['availabilityStatus'];
       }
     }
-    if (Array.isArray(body.imageUrls)) {
+    if (body.resetImages === true) {
+      delete nextOverride.imageUrls;
+    } else if (Array.isArray(body.imageUrls)) {
       nextOverride.imageUrls = body.imageUrls
         .map((u) => safeTrim(u, 400))
         .filter((u) => Boolean(u));
@@ -655,6 +866,7 @@ async function startServer(): Promise<void> {
 
     store.propertyOverrides[id] = nextOverride;
     saveStore(store);
+    cleanupUnusedUploadFiles(store, previousImageUrls);
     res.json({ ok: true, propertyOverrides: store.propertyOverrides });
   });
 

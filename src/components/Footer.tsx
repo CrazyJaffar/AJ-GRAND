@@ -4,13 +4,11 @@ import { SiteConfig, getGoogleMapsDirectionsUrl } from '../config/siteConfig';
 interface FooterProps {
   config: SiteConfig;
   onNavigateSection: (sectionId: string) => void;
-  onOpenAdmin: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   config,
   onNavigateSection,
-  onOpenAdmin,
 }) => {
   const mapsUrl = getGoogleMapsDirectionsUrl(config);
 
@@ -42,6 +40,8 @@ export const Footer: React.FC<FooterProps> = ({
                 { label: 'Floor-Wise Overview', id: 'floors' },
                 { label: 'Building Amenities', id: 'amenities' },
                 { label: 'Modi Garden Location', id: 'location' },
+                { label: 'Resident Feedback', id: 'testimonials' },
+                { label: 'Frequently Asked Questions', id: 'faq' },
                 { label: 'Schedule Site Visit', id: 'enquire' },
               ].map((item) => (
                 <li key={item.id}>
@@ -107,13 +107,7 @@ export const Footer: React.FC<FooterProps> = ({
             © {new Date().getFullYear()} AJ GRAND · 1 BHK &amp; 2 BHK Residences for Rent in
             Kaval Bairasandra, Modi Garden, Bengaluru.
           </p>
-          <button
-            type="button"
-            onClick={onOpenAdmin}
-            className="text-[#f2f0ed]/50 hover:text-[#e0c298] transition-colors cursor-pointer"
-          >
-            Owner Portal
-          </button>
+          <p className="text-[#f2f0ed]/50">Direct Owner Leasing · Zero Brokerage</p>
         </div>
       </div>
     </footer>

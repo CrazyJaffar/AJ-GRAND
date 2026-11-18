@@ -19,6 +19,8 @@ import { PropertyListingsSection } from './components/PropertyListingsSection';
 import { FloorOverviewSection } from './components/FloorOverviewSection';
 import { AmenitiesAndGallerySection } from './components/AmenitiesAndGallerySection';
 import { LocationSection } from './components/LocationSection';
+import { TestimonialsSection } from './components/TestimonialsSection';
+import { FaqSection } from './components/FaqSection';
 import { EnquirySection } from './components/EnquirySection';
 import { PropertyDetailView } from './components/PropertyDetailView';
 import { Footer } from './components/Footer';
@@ -26,6 +28,7 @@ import { MobileStickyBar } from './components/MobileStickyBar';
 import { ConsentBanner } from './components/ConsentBanner';
 import { ContactModal } from './components/ContactModal';
 import { AdminDashboard } from './components/AdminDashboard';
+import { GeminiConciergeChat } from './components/GeminiConciergeChat';
 
 function resolveRouteFromPath(pathname: string): {
   view: 'home' | 'detail' | 'admin';
@@ -53,6 +56,13 @@ export default function App() {
     property: Property | null;
   }>({ mode: null, property: null });
   const [consent, setConsent] = useState<ConsentStatus>(() => getStoredConsent());
+  const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    const onQuotaExceeded = () => setMapsQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', onQuotaExceeded);
+    return () => window.removeEventListener('gmp-quota-exceeded', onQuotaExceeded);
+  }, []);
 
   const activeProperty =
     route.view === 'detail' && route.slug
@@ -224,9 +234,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fbf9f6] text-[#1b1c1a] flex flex-col">
+      {mapsQuotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
+
       <Navbar
         onNavigateHomeSection={scrollToHomeSection}
         onScheduleVisitClick={() => handleScheduleVisit(activeProperty)}
+        onOpenAdmin={() => navigateTo('/admin')}
       />
 
       <main className="flex-1">
@@ -267,6 +295,13 @@ export default function App() {
 
             <LocationSection config={siteConfig} />
 
+            <TestimonialsSection />
+
+            <FaqSection
+              onScheduleVisit={() => handleScheduleVisit(null)}
+              onWhatsApp={() => handleWhatsApp(null)}
+            />
+
             <EnquirySection
               config={siteConfig}
               selectedProperty={selectedPropertyForEnquiry}
@@ -280,7 +315,6 @@ export default function App() {
       <Footer
         config={siteConfig}
         onNavigateSection={scrollToHomeSection}
-        onOpenAdmin={() => navigateTo('/admin')}
       />
 
       <MobileStickyBar
@@ -302,6 +336,10 @@ export default function App() {
         onProceedToEnquiry={() =>
           handleScheduleVisit(contactModalState.property)
         }
+      />
+
+      <GeminiConciergeChat
+        onScheduleVisit={() => handleScheduleVisit(activeProperty)}
       />
     </div>
   );
